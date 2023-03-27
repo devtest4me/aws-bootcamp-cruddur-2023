@@ -2,18 +2,29 @@ flask
 flask-cors
 aws-xray-sdk
 
+# Honeycomb
 opentelemetry-api 
 opentelemetry-sdk 
 opentelemetry-exporter-otlp-proto-http 
 opentelemetry-instrumentation-flask 
 opentelemetry-instrumentation-requests
 
+# X-Ray
+aws-xray-sdk
+
+# Rollbar
 blinker
 rollbar
 
+# CloudWatch
 watchtower
 
+# Cognito JWT
 Flask-AWSCognito
 
+# PostgreSQL
 psycopg[binary]
 psycopg[pool]
+
+#  DynamoDB
+boto3
