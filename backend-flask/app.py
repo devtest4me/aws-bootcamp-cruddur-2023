@@ -2,10 +2,7 @@ from flask import Flask
 from flask import request
 from flask_cors import CORS, cross_origin
 import os
-import sys
 
-
-from services.users_short import *
 from services.home_activities import *
 from services.notifications_activities import *
 from services.user_activities import *
@@ -16,11 +13,12 @@ from services.message_groups import *
 from services.messages import *
 from services.create_message import *
 from services.show_activity import *
+from services.users_short import *
 
 # Flask-AWSCognito Auth
 from lib.cognito_jwt_token import CognitoJwtToken, TokenVerifyError, FlaskAWSCognitoError, extract_access_token
 
-# Rollbar modules and imports
+#Rollbar modules and imports
 import rollbar
 import rollbar.contrib.flask
 from flask import got_request_exception
@@ -53,9 +51,6 @@ region = os.getenv('AWS_DEFAULT_REGION')
 cognito_token_verify = CognitoJwtToken(user_pool_id=cognito_user_pool_id,
   user_pool_client_id=cognito_user_pool_client_id,
   region=region)
-
-# X-RAY
-# XRayMiddleware(app, xray_recorder)
 
 # Initialize tracing and an exporter that can send data to Honeycomb
 provider = TracerProvider()
@@ -104,13 +99,13 @@ frontend = os.getenv('FRONTEND_URL')
 backend = os.getenv('BACKEND_URL')
 origins = [frontend, backend]
 
-#cors = CORS(
-#  app,
-#  resources={r"/api/*": {"origins": origins}},
-#  headers=['Content-Type', 'Authorization'], 
-#  expose_headers='Authorization',
-#  methods="OPTIONS,GET,HEAD,POST"
-#)
+cors = CORS(
+  app,
+  resources={r"/api/*": {"origins": origins}},
+  headers=['Content-Type', 'Authorization'], 
+  expose_headers='Authorization',
+  methods="OPTIONS,GET,HEAD,POST"
+)
 
 # CloudWatch Logs
 # @app.after_request
@@ -119,66 +114,91 @@ origins = [frontend, backend]
 #     LOGGER.error('%s %s %s %s %s %s', timestamp, request.remote_addr, request.method, request.scheme, request.full_path, response.status)
 #     return response
 
-# Rollbar
-rollbar_access_token = os.getenv('ROLLBAR_ACCESS_TOKEN')
-@app.before_first_request
-def init_rollbar():
-    """init rollbar module"""
-    rollbar.init(
-        # access token
-        rollbar_access_token,
-        # environment name
-        'production',
-        # server root directory, makes tracebacks prettier
-        root=os.path.dirname(os.path.realpath(__file__)),
-        # flask already sets up logging
-        allow_logging_basic_config=False)
-
-    got_request_exception.connect(rollbar.contrib.flask.report_exception, app)
-    
-# test 
 @app.route('/rollbar/test')
 def rollbar_test():
     rollbar.report_message('Hello World!', 'warning')
     return "Hello World!"
 
+
 @app.route("/api/message_groups", methods=['GET'])
 def data_message_groups():
-  user_handle  = 'andrewbrown'
-  model = MessageGroups.run(user_handle=user_handle)
-  if model['errors'] is not None:
-    return model['errors'], 422
-  else:
-    return model['data'], 200
+  access_token = extract_access_token(request.headers)
+  try:
+    claims = cognito_token_verify.verify(access_token)
+    # authenticated request
+    app.logger.debug('authenticated')
+    app.logger.debug(claims["sub"])
+    user_id = claims['sub']
+    model = MessageGroups.run(cognito_user_id=user_id)
+    if model['errors'] is not None:
+      return model['errors'], 422
+    else:
+      return model['data'], 200
+  except TokenVerifyError as e:
+    # unauthenticated request
+    app.logger.debug(e)
+    return {}, 401
 
-@app.route("/api/messages/@<string:handle>", methods=['GET'])
-def data_messages(handle):
-  user_sender_handle = 'andrewbrown'
-  user_receiver_handle = request.args.get('user_reciever_handle')
-
-  model = Messages.run(user_sender_handle=user_sender_handle, user_receiver_handle=user_receiver_handle)
-  if model['errors'] is not None:
-    return model['errors'], 422
-  else:
-    return model['data'], 200
-  return
+@app.route("/api/messages/<string:message_group_uuid>", methods=['GET'])
+def data_messages(message_group_uuid):
+  access_token = extract_access_token(request.headers)
+  try:
+    claims = cognito_token_verify.verify(access_token)
+    # authenticated request
+    app.logger.debug('authenticated')
+    app.logger.debug(claims["sub"])
+    user_id = claims['sub']
+    model = Messages.run(cognito_user_id=user_id, message_group_uuid=message_group_uuid)
+    if model['errors'] is not None:
+      return model['errors'], 422
+    else:
+      return model['data'], 200
+  except TokenVerifyError as e:
+      # unauthenticated request
+      app.logger.debug(e)
+      return {}, 401
 
 @app.route("/api/messages", methods=['POST','OPTIONS'])
 @cross_origin()
 def data_create_message():
-  user_sender_handle = 'andrewbrown'
-  user_receiver_handle = request.json['user_receiver_handle']
+  message_group_uuid   = request.json.get('message_group_uuid', None)
+  user_receiver_handle = request.json.get('handle', None)
   message = request.json['message']
-
-  model = CreateMessage.run(message=message,user_sender_handle=user_sender_handle,user_receiver_handle=user_receiver_handle)
-  if model['errors'] is not None:
-    return model['errors'], 422
-  else:
-    return model['data'], 200
-  return
+  access_token = extract_access_token(request.headers)
+  try:
+    claims = cognito_token_verify.verify(access_token)
+    # authenticated request
+    app.logger.debug('authenticated')
+    app.logger.debug(claims["sub"])
+    user_id = claims['sub']
+   
+    if message_group_uuid == None:
+      # Create for the first time
+      model = CreateMessage.run(mode="create",
+        message=message,
+        cognito_user_id=user_id,
+        user_receiver_handle=user_receiver_handle
+      )
+    else:
+      # Push onto existing Message Group
+      model = CreateMessage.run(
+        mode="update",
+        message=message,
+        message_group_uuid=message_group_uuid,
+        cognito_user_id=user_id
+      )
+    
+    if model['errors'] is not None:
+      return model['errors'], 422
+    else:
+      return model['data'], 200
+  except TokenVerifyError as e:
+      # unauthenticated request
+      app.logger.debug(e)
+      return {}, 401
 
 @app.route("/api/activities/home", methods=['GET'])
-@xray_recorder.capture('activities_home')
+# @xray_recorder.capture('activities_home')
 # @aws_auth.authentication_required
 def data_home():
   access_token = extract_access_token(request.headers)
@@ -253,6 +273,11 @@ def data_activities_reply(activity_uuid):
   else:
     return model['data'], 200
   return
+
+@app.route("/api/users/@<string:handle>/short", methods=['GET'])
+def data_users_short(handle):
+  data = UsersShort.run(handle)
+  return data, 200
 
 if __name__ == "__main__":
   app.run(debug=True)
