@@ -6,9 +6,10 @@ import DesktopSidebar     from '../components/DesktopSidebar';
 import ActivityFeed from '../components/ActivityFeed';
 import ActivityForm from '../components/ActivityForm';
 import ReplyForm from '../components/ReplyForm';
+import { Auth } from 'aws-amplify';
 
 // [TODO] Authenication
-import Cookies from 'js-cookie'
+// import Cookies from 'js-cookie'
 
 export default function NotificationsFeedPage() {
   const [activities, setActivities] = React.useState([]);
@@ -47,10 +48,6 @@ export default function NotificationsFeedPage() {
   };
 
   React.useEffect(()=>{
-    //prevents double call
-    if (dataFetchedRef.current) return;
-    dataFetchedRef.current = true;
-
     loadData();
     checkAuth();
   }, [])
