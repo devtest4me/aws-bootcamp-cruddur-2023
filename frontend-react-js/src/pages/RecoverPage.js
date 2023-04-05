@@ -3,7 +3,6 @@ import React from "react";
 import {ReactComponent as Logo} from '../components/svg/logo.svg';
 import { Link } from "react-router-dom";
 import { Auth } from 'aws-amplify';
-
 export default function RecoverPage() {
   // Username is Eamil
   const [username, setUsername] = React.useState('');
@@ -21,8 +20,8 @@ export default function RecoverPage() {
     .catch((err) => setErrors(err.message) );
     return false
   }
-
-  const onsubmit_confirm_code = async (event) => {
+  
+const onsubmit_confirm_code = async (event) => {
   event.preventDefault();
   setErrors('')
   if (password == passwordAgain){
